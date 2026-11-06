@@ -173,7 +173,7 @@ ol.steps li{margin-bottom:6px}
 .hostbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#fff;margin-bottom:14px}
 .codebox{background:#fff;color:var(--ink);border-radius:18px;padding:8px 18px;box-shadow:0 6px 0 rgba(0,0,0,.25)}
 .codebox small{display:block;font-size:13px;color:var(--muted)}
-.codebox b{font-family:var(--jua);font-weight:400;font-size:44px;letter-spacing:6px;line-height:1}
+.codebox b{font-family:var(--jua);font-weight:400;font-size:clamp(24px,5vw,38px);letter-spacing:3px;line-height:1}
 .statebadge{font-family:var(--jua);font-size:20px;background:rgba(255,255,255,.16);border-radius:999px;padding:6px 14px}
 .bigtimer{font-family:var(--jua);font-size:40px;color:var(--sun);min-width:3.2em;text-align:center}
 .bigtimer.warn{color:#ff8fa3}
@@ -292,15 +292,9 @@ ol.steps li{margin-bottom:6px}
       <p class="muted" style="margin-top:0">학생 여러 명이 같은 반 코드로 들어와 점수를 겨루려면, 점수를 주고받을 무료 데이터베이스(구글 Firebase)가 필요해요. 처음 한 번만 하면 돼요(약 10분).</p>
       <ol class="steps">
         <li><a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>에 구글 계정으로 들어가서 <b>프로젝트 만들기</b> (이름은 아무거나, 애널리틱스는 꺼도 돼요)</li>
-        <li>왼쪽 메뉴에서 <b>Realtime Database</b> → <b>데이터베이스 만들기</b> → 위치는 <b>싱가포르(asia-southeast1)</b> → <b>테스트 모드로 시작</b></li>
-        <li>Realtime Database의 <b>규칙</b> 탭에 아래 규칙을 붙여넣고 <b>게시</b> (테스트 모드는 30일 뒤 막히기 때문이에요)
-          <pre class="code" id="rules-text">{
-  "rules": {
-    "rooms": { ".read": true, ".write": true }
-  }
-}</pre>
-          <button class="btn ghost sm" id="copy-rules">규칙 복사</button>
-        </li>
+        <li>Realtime Database를 만들고 <b>잠금 모드</b>로 시작하세요. Authentication → 로그인 방법에서 <b>익명</b> 로그인을 사용 설정하세요. 학생에게 회원가입 화면은 나오지 않습니다.</li>
+        <li>이 버전과 함께 제공된 <a href="database.rules.json" target="_blank" rel="noopener">database.rules.json</a>의 전체 내용을 Realtime Database의 규칙에 게시하세요. <b>기존 공개 규칙은 사용하지 마세요.</b></li>
+        <li>방은 24시간 뒤 접근이 만료됩니다. 반 코드는 수업 참여자에게만 공유하고, 게임 진행 중 선생님 화면을 켜 두세요. 이름 대신 별명을 사용해도 됩니다.</li>
         <li>프로젝트 개요 옆 ⚙️ → <b>프로젝트 설정</b> → 아래쪽 <b>내 앱</b>에서 웹 앱(<code>&lt;/&gt;</code>) 추가 → 나오는 <code>firebaseConfig</code> 코드를 통째로 복사</li>
         <li>아래 칸에 붙여넣고 <b>연결 확인</b></li>
       </ol>
@@ -417,8 +411,8 @@ ol.steps li{margin-bottom:6px}
   <div class="narrow">
     <div class="panel">
       <h2>🙋 게임 참가하기</h2>
-      <label class="lbl" for="j-code">반 코드 (숫자 5자리)</label>
-      <input class="inp jua" id="j-code" inputmode="numeric" autocomplete="off" maxlength="5" style="font-size:30px;letter-spacing:8px;text-align:center" placeholder="00000">
+      <label class="lbl" for="j-code">반 코드 (숫자 8자리)</label>
+      <input class="inp jua" id="j-code" inputmode="numeric" autocomplete="off" maxlength="8" style="font-size:30px;letter-spacing:3px;text-align:center" placeholder="00000000">
       <label class="lbl" for="j-name">이름 (8글자까지)</label>
       <input class="inp" id="j-name" maxlength="8" autocomplete="off" placeholder="예: 김민준">
       <div class="err" id="j-err"></div>
@@ -635,23 +629,34 @@ syncSoundBtns();
 const HP=new URLSearchParams(location.hash.slice(1));
 (function(){const c=HP.get('cfg');if(c){try{const o=b64d(c);if(o&&o.databaseURL)store.set('rcb_cfg',o)}catch(e){}}})();
 function getCfg(){return EMBEDDED_CFG||store.get('rcb_cfg',null)}
-let DB=null, serverOffset=0;
+let DB=null, AUTH=null, initPromise=null, serverOffset=0;
 const now=()=>Date.now()+serverOffset;
 const SV=()=>firebase.database.ServerValue;
 const INC=n=>firebase.database.ServerValue.increment(n);
+const uid=()=>AUTH&&AUTH.currentUser&&AUTH.currentUser.uid;
+function roomCode(){const a=new Uint32Array(1);do{crypto.getRandomValues(a)}while(a[0]>=4200000000);return String(a[0]%100000000).padStart(8,'0')}
 function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=()=>rej(new Error('스크립트를 불러오지 못했어요'));document.head.append(s)})}
 async function initFirebase(cfg){
-  if(DB)return DB;
-  if(!cfg||!cfg.databaseURL)throw new Error('설정이 없어요');
-  if(!window.firebase||!window.firebase.database){
-    await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-    await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js');
-  }
-  const app=firebase.apps.length?firebase.app():firebase.initializeApp(cfg);
-  DB=firebase.database(app);
-  DB.ref('.info/serverTimeOffset').on('value',s=>{serverOffset=s.val()||0});
-  return DB;
+  if(DB&&uid())return DB;
+  if(initPromise)return initPromise;
+  initPromise=(async()=>{
+    if(!cfg||!cfg.databaseURL)throw new Error('설정이 없어요');
+    if(!window.firebase)await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+    if(!firebase.database)await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js');
+    if(!firebase.auth)await loadScript('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js');
+    const app=firebase.apps.length?firebase.app():firebase.initializeApp(cfg);
+    AUTH=firebase.auth(app);
+    await new Promise((resolve,reject)=>{let off=AUTH.onAuthStateChanged(()=>{off();resolve()},reject)});
+    if(!AUTH.currentUser)await AUTH.signInAnonymously();
+    DB=firebase.database(app);
+    const offset=await DB.ref('.info/serverTimeOffset').once('value');serverOffset=offset.val()||0;
+    DB.ref('.info/serverTimeOffset').on('value',v=>{serverOffset=v.val()||0});
+    return DB;
+  })();
+  try{return await initPromise}catch(e){DB=null;if(e.code==='auth/operation-not-allowed')throw new Error('Firebase Authentication에서 익명 로그인을 먼저 켜 주세요.');throw e}finally{initPromise=null}
 }
+function networkAccessError(e){networkError(e);goHome()}
+function networkError(e){toast('연결 또는 접근 권한을 확인해 주세요. 오래된 방이면 새 반 코드로 다시 참가하세요.','bad',5000);console.warn('Database operation failed:',e&&e.code||'unknown')}
 function withTimeout(p,ms,msg){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error(msg||'연결 시간이 초과됐어요')),ms))])}
 function parseCfg(text){const o={};const re=/(apiKey|authDomain|databaseURL|projectId|storageBucket|messagingSenderId|appId)["']?\s*:\s*["']([^"']+)["']/g;let m;while((m=re.exec(text)))o[m[1]]=m[2].trim();return o}
 function joinUrl(code){
@@ -686,50 +691,45 @@ class SoloNet{
 class FireNet{
   constructor(code,pid){this.code=code;this.pid=pid;this.room=DB.ref('rooms/'+code);this.meRef=this.room.child('players/'+pid);this.offs=[]}
   listen(cb){
-    const on=(ref,ev,fn)=>{ref.on(ev,fn);this.offs.push(()=>ref.off(ev,fn))};
+    const on=(ref,ev,fn)=>{ref.on(ev,fn,networkAccessError);this.offs.push(()=>ref.off(ev,fn))};
     on(this.room.child('meta'),'value',s=>cb.meta&&cb.meta(s.val()));
     on(this.meRef,'value',s=>cb.me&&cb.me(s.val()));
     on(this.room.child('players'),'value',s=>cb.players&&cb.players(s.val()||{}));
-    on(this.room.child('inbox/'+this.pid),'child_added',s=>{const v=s.val();s.ref.remove();cb.inbox&&cb.inbox(v)});
+    on(this.room.child('inbox/'+this.pid),'child_added',s=>{const v=s.val();s.ref.remove().catch(networkError);cb.inbox&&cb.inbox(v)});
     const conRef=DB.ref('.info/connected');
-    on(conRef,'value',s=>{if(s.val()===true&&this.alive){this.meRef.child('online').onDisconnect().set(false);this.meRef.child('online').set(true)}});
+    on(conRef,'value',s=>{if(s.val()===true&&this.alive){this.meRef.child('online').onDisconnect().set(false).catch(networkError);this.meRef.child('online').set(true).catch(networkError)}});
     this.alive=true;
   }
-  addScore(d,key,extra){const u=Object.assign({score:INC(d)},extra||{});if(key)u[key]=INC(1);this.meRef.update(u)}
+  addScore(d,key,extra){const u=Object.assign({score:INC(d)},extra||{});if(key)u[key]=INC(1);this.meRef.update(u).catch(networkError)}
   async spend(c){
     try{const r=await this.meRef.child('score').transaction(s=>{if(s===null)return s;if(s<c)return;return s-c});return r.committed&&r.snapshot.val()!==null}catch(e){return false}
   }
   async refund(c){await this.meRef.update({score:INC(c)})}
-  setRound(r){this.meRef.update({round:r,rp:0})}
-  setDone(){this.meRef.update({done:true})}
+  setRound(r){this.meRef.update({round:r,rp:0}).catch(networkError)}
+  setDone(){this.meRef.update({done:true}).catch(networkError)}
   async addGuard(){await this.meRef.update({guard:INC(1)})}
-  setFx(o){this.meRef.update(o)}
-  async steal(tid,myName){
-    const tRef=this.room.child('players/'+tid);
-    let outcome='gone',amount=0,tname='';
-    const t=now();
+  setFx(o){this.meRef.update(o).catch(networkError)}
+  async steal(tid){
+    const request=this.room.child('requests/'+this.pid);
+    const id=this.room.child('results/'+this.pid).push().key;
+    const result=this.room.child('results/'+this.pid+'/'+id);
+    let cancel;
+    const outcome=new Promise((resolve,reject)=>{
+      const cb=s=>{if(s.exists()){cleanup();resolve(s.val())}};
+      const cleanup=()=>{clearTimeout(timer);result.off('value',cb)};
+      const timer=setTimeout(()=>{cleanup();resolve(null)},10000);
+      cancel=cleanup;result.on('value',cb,e=>{cleanup();reject(e)});
+    });
+    outcome.catch(()=>{}); // A listener rejection is observed even if submitting the request fails first.
     try{
-      await tRef.transaction(p=>{
-        if(p===null){outcome='gone';return p}
-        tname=p.name||'';
-        if(!p.name){outcome='gone';return}
-        if((p.guard||0)>0){p.guard=p.guard-1;outcome='blocked';amount=0;return p}
-        if(p.hitAt&&t-p.hitAt<IMMUNE_MS){outcome='immune';return}
-        if((p.score||0)<=0){outcome='empty';return}
-        amount=Math.max(1,Math.floor(p.score*STEAL_PCT));p.score=p.score-amount;p.hitAt=t;outcome='stolen';return p;
-      },undefined,false);
-    }catch(e){outcome='error'}
-    if(outcome==='stolen'){
-      await this.meRef.update({score:INC(amount)});
-      this.room.child('inbox/'+tid).push({type:'stolen',from:myName,amount,t});
-      this.room.child('feed').push({type:'stolen',from:myName,to:tname,amount,t});
-    }else if(outcome==='blocked'){
-      this.room.child('inbox/'+tid).push({type:'blocked',from:myName,t});
-      this.room.child('feed').push({type:'blocked',from:myName,to:tname,t});
-    }
-    return {outcome,amount,tname};
+      await request.set({id,target:tid,createdAt:SV().TIMESTAMP});
+      let r=await outcome;
+      if(!r){await request.remove();r=(await result.get()).val()}
+      if(r){await result.remove();return r}
+      return {outcome:'offline',amount:0};
+    }finally{cancel()}
   }
-  detach(){this.alive=false;try{this.meRef.child('online').onDisconnect().cancel()}catch(e){}this.offs.forEach(f=>f());this.offs=[]}
+  detach(){this.alive=false;this.meRef.child('online').set(false).then(()=>this.meRef.child('online').onDisconnect().cancel()).catch(()=>{});this.offs.forEach(f=>f());this.offs=[]}
 }
 
 /* ================= 처음 화면 ================= */
@@ -739,7 +739,7 @@ function goHome(){
   const hs=store.get('rcb_host',null);
   const box=$('#resume-host');box.textContent='';
   if(hs&&getCfg()&&Date.now()-hs.at<6*3600e3){
-    box.append(h('button',{class:'btn glass',onclick:async()=>{try{await initFirebase(getCfg());enterHost(hs.code)}catch(e){toast(e.message,'bad')}}},'↩ 진행 중이던 방 '+hs.code+' 다시 열기'));
+    box.append(h('button',{class:'btn glass',onclick:async()=>{try{await initFirebase(getCfg());await enterHost(hs.code)}catch(e){toast(e.message,'bad')}}},'↩ 진행 중이던 방 '+hs.code+' 다시 열기'));
     box.hidden=false;
   }else box.hidden=true;
 }
@@ -756,7 +756,6 @@ function openSetup(){
   show('s-setup');$('#cfg-done').hidden=true;$('#cfg-err').textContent='';
   const c=getCfg();if(c&&!$('#cfg-text').value)$('#cfg-text').value=JSON.stringify(c,null,2);
 }
-$('#copy-rules').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('#rules-text').textContent).then(()=>toast('규칙을 복사했어요','ok'),()=>toast('복사가 안 되면 직접 드래그해서 복사해 주세요'))};
 $('#cfg-text').addEventListener('input',()=>{const o=parseCfg($('#cfg-text').value);$('#dburl-wrap').hidden=!(o.apiKey&&!o.databaseURL)});
 let pendingCfg=null;
 $('#cfg-test').onclick=async()=>{
@@ -769,14 +768,12 @@ $('#cfg-test').onclick=async()=>{
   const btn=$('#cfg-test');btn.disabled=true;btn.textContent='확인 중…';
   try{
     await withTimeout(initFirebase(o),12000);
-    const ref=DB.ref('rooms/_check');
-    await withTimeout(ref.set({t:Date.now()}),12000,'데이터베이스에 쓰지 못했어요. 주소와 규칙을 확인해 주세요.');
-    await ref.remove();
+    await withTimeout(DB.ref('rooms/'+roomCode()+'/meta').get(),12000,'데이터베이스 규칙을 확인해 주세요.');
     store.set('rcb_cfg',o);pendingCfg=o;
     $('#cfg-done').hidden=false;$('#cfg-done').scrollIntoView({behavior:'smooth'});
   }catch(e){
     const m=String(e&&e.message||e);
-    err.textContent=/permission/i.test(m)?'규칙 때문에 막혔어요. 3번 규칙을 붙여넣고 "게시"를 눌렀는지 확인해 주세요.':('연결 실패: '+m);
+    err.textContent=/permission/i.test(m)?'규칙 때문에 막혔어요. 이 버전의 database.rules.json을 게시했는지 확인해 주세요.':('연결 실패: '+m);
     DB=null;
   }finally{btn.disabled=false;btn.textContent='연결 확인'}
 };
@@ -809,30 +806,76 @@ $('#host-create').onclick=async()=>{
   try{
     await withTimeout(initFirebase(getCfg()),12000);
     let code=null;
-    for(let i=0;i<25&&!code;i++){
-      const c=String(10000+Math.floor(Math.random()*90000));
-      const s=await withTimeout(DB.ref('rooms/'+c+'/meta').get(),10000);
-      if(!s.exists())code=c;
-      else if(Date.now()-((s.val()||{}).createdAt||0)>2*86400e3){await DB.ref('rooms/'+c).remove();code=c}
+    for(let i=0;i<10&&!code;i++){
+      const c=roomCode();
+      const meta=await withTimeout(DB.ref('rooms/'+c+'/meta').get(),10000);
+      if(meta.exists())continue;
+      try{
+        await DB.ref('rooms/'+c).set({meta:{ownerUid:uid(),status:'lobby',createdAt:SV().TIMESTAMP,expiresAt:now()+86300000,duration:HOPT.dur,startRound:tierStart(HOPT.tier),shop:HOPT.shop,steal:HOPT.steal}});
+        code=c;
+      }catch(e){if(e.code!=='PERMISSION_DENIED')throw e}
     }
-    if(!code)throw new Error('반 코드를 만들지 못했어요. 다시 눌러 주세요.');
-    await DB.ref('rooms/'+code+'/meta').set({status:'lobby',createdAt:SV().TIMESTAMP,duration:HOPT.dur,startRound:tierStart(HOPT.tier),shop:HOPT.shop,steal:HOPT.steal});
+    if(!code)throw new Error('반 코드를 만들지 못했어요. 보안 규칙을 확인해 주세요.');
     store.set('rcb_host',{code,at:Date.now()});
-    enterHost(code);
+    await enterHost(code);
   }catch(e){$('#hostcfg-err').textContent='방을 만들지 못했어요: '+(e.message||e)}
   finally{btn.disabled=false;btn.textContent='방 만들기'}
 };
 
+// All cross-player writes are performed atomically by the room owner, never by students.
+function applyStealRequest(room,actor,expectedId,t){
+  const q=room&&room.requests&&room.requests[actor];
+  if(!q||q.id!==expectedId)return;
+  const meta=room.meta||{}, me=room.players&&room.players[actor], victim=room.players&&room.players[q.target];
+  let outcome='gone',amount=0,tname=victim&&victim.name||'';
+  const cost=ITEMS.find(i=>i.id==='steal').cost;
+  if(meta.status!=='playing'||!meta.shop||!meta.steal||meta.expiresAt<=t||t-q.createdAt>15000||q.createdAt>t+1000)outcome='expired';
+  else if(!me||!victim||actor===q.target)outcome='gone';
+  else if(me.score<cost)outcome='funds';
+  else if(victim.guard>0){victim.guard--;me.score-=cost;outcome='blocked'}
+  else if(victim.hitAt&&t-victim.hitAt<IMMUNE_MS)outcome='immune';
+  else if(victim.score<=0)outcome='empty';
+  else{
+    amount=Math.max(1,Math.floor(victim.score*STEAL_PCT));
+    victim.score-=amount;victim.hitAt=t;me.score=me.score-cost+amount;outcome='stolen';
+  }
+  room.results=room.results||{};room.results[actor]=room.results[actor]||{};
+  room.results[actor][q.id]={outcome,amount,tname};
+  if(outcome==='stolen'||outcome==='blocked'){
+    const event={type:outcome,from:me.name,to:tname,amount,t};
+    room.inbox=room.inbox||{};room.inbox[q.target]=room.inbox[q.target]||{};
+    room.inbox[q.target][q.id]=event;room.feed=room.feed||{};room.feed[q.id]=event;
+    // Retain bounded UI history rather than accumulating all events forever.
+    Object.keys(room.feed).sort().slice(0,-30).forEach(k=>delete room.feed[k]);
+    Object.keys(room.inbox[q.target]).sort().slice(0,-30).forEach(k=>delete room.inbox[q.target][k]);
+  }
+  delete room.requests[actor];
+  return room;
+}
+async function processSteal(ref,actor,q){
+  if(!q||!q.id)return;
+  // Warm the cache; the transaction still handles a cold cache and retries safely.
+  await ref.get();
+  await ref.transaction(room=>{
+    if(!room)return room; // Cold cache: let the server supply the current value and retry.
+    if(!room.meta||room.meta.ownerUid!==uid())return;
+    return applyStealRequest(room,actor,q.id,now());
+  },undefined,false);
+}
+
 /* ================= 선생님: 진행 ================= */
 const H={code:null,meta:null,players:{},feed:[],offs:[],tiles:new Map(),tick:null,renderQ:false,qrFor:null};
-function enterHost(code){
+async function enterHost(code){
+  const ms=await DB.ref('rooms/'+code+'/meta').get();
+  if(!ms.exists()||ms.val().ownerUid!==uid()||ms.val().expiresAt<=now())throw new Error('이 기기에서 만든 유효한 방만 진행할 수 있어요. 새 방을 만들어 주세요.');
   leaveAll();
   H.code=code;H.meta=null;H.players={};H.feed=[];H.tiles=new Map();$('#h-tiles').textContent='';H.qrFor=null;$('#qr').textContent='';
   const room=DB.ref('rooms/'+code);
-  const on=(ref,ev,fn)=>{ref.on(ev,fn);H.offs.push(()=>ref.off(ev,fn))};
+  const on=(ref,ev,fn)=>{ref.on(ev,fn,networkAccessError);H.offs.push(()=>ref.off(ev,fn))};
   on(room.child('meta'),'value',s=>{H.meta=s.val();renderHost()});
   on(room.child('players'),'value',s=>{H.players=s.val()||{};queueHostRender()});
   on(room.child('feed').limitToLast(10),'value',s=>{const v=s.val()||{};H.feed=Object.values(v).sort((a,b)=>(b.t||0)-(a.t||0));renderFeed()});
+  on(room.child('requests'),'child_added',s=>processSteal(room,s.key,s.val()).catch(networkError));
   $('#h-code').textContent=code;$('#h-code2').textContent=code;
   const url=joinUrl(code);$('#h-url').textContent=url;$('#h-url2').textContent=url;
   show('s-host');
@@ -865,7 +908,7 @@ function hostTick(){
   if(!m||m.status!=='playing'){el.textContent='';return}
   if(m.endsAt){
     const left=m.endsAt-now();el.textContent='⏱ '+fmtTime(left);el.classList.toggle('warn',left<30000);
-    if(left<=0&&!H.ending){H.ending=true;DB.ref('rooms/'+H.code+'/meta').update({status:'ended',endedAt:now()}).finally(()=>{H.ending=false})}
+    if(left<=0&&!H.ending){H.ending=true;DB.ref('rooms/'+H.code+'/meta').update({status:'ended',endedAt:now()}).catch(networkError).finally(()=>{H.ending=false})}
   }else el.textContent='⏱ 제한 없음';
   // 효과 아이콘 갱신
   if(!$('#h-live').hidden)H.tiles.forEach((el,id)=>{const p=H.players[id];if(p)el.querySelector('.fxs').textContent=fxIcons(p)});
@@ -873,12 +916,12 @@ function hostTick(){
 $('#h-start').onclick=async()=>{
   const m=H.meta;if(!m)return;
   const t=now();
-  await DB.ref('rooms/'+H.code+'/meta').update({status:'playing',startedAt:t,endsAt:m.duration?t+m.duration*60000:0});
+  try{await DB.ref('rooms/'+H.code+'/meta').update({status:'playing',startedAt:t,endsAt:m.duration?t+m.duration*60000:0})}catch(e){networkError(e);return}
   beep('clear');
 };
-$('#h-end').onclick=async()=>{if(!confirm('게임을 끝내고 결과를 보여 줄까요?'))return;await DB.ref('rooms/'+H.code+'/meta').update({status:'ended',endedAt:now()})};
+$('#h-end').onclick=async()=>{if(!confirm('게임을 끝내고 결과를 보여 줄까요?'))return;await DB.ref('rooms/'+H.code+'/meta').update({status:'ended',endedAt:now()}).catch(networkError)};
 $('#h-copy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(joinUrl(H.code)).then(()=>toast('주소를 복사했어요','ok'))};
-function kick(p){if(!confirm(p.name+' 학생을 내보낼까요? (점수도 지워져요)'))return;DB.ref('rooms/'+H.code+'/players/'+p.id).remove();DB.ref('rooms/'+H.code+'/inbox/'+p.id).remove()}
+function kick(p){if(!confirm(p.name+' 학생을 내보낼까요? (점수도 지워져요)'))return;DB.ref('rooms/'+H.code+'/players/'+p.id).remove().catch(networkError);DB.ref('rooms/'+H.code+'/inbox/'+p.id).remove().catch(networkError)}
 function fxIcons(p){const t=now();let s='';if((p.fxD||0)>t)s+='⚡';if((p.fxS||0)>t)s+='😇';if((p.guard||0)>0)s+='🛡️';if(p.done)s+='🏆';return s}
 function drawQR(){
   const url=joinUrl(H.code);
@@ -933,7 +976,7 @@ function renderHostEnd(list){
     h('button',{class:'btn ghost',onclick:()=>{store.del('rcb_host');goHome()}},'처음으로')));
 }
 function saveCSV(list){
-  const esc=s=>'"'+String(s).replace(/"/g,'""')+'"';
+  const esc=s=>{let v=String(s);if(typeof s==='string'&&/^[=+\-@\t\r]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'};
   const rows=[['순위','이름','점수','도달 라운드','정답','오답','정확도(%)']].concat(list.map(p=>[p.rank,p.name,p.score||0,p.done?'100(완주)':(p.round||1),p.ok||0,p.ng||0,acc(p)??'']));
   const d=new Date();const stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
   download('비례식카드배틀_결과_'+stamp+'_'+H.code+'.csv','﻿'+rows.map(r=>r.map(esc).join(',')).join('\r\n'),'text/csv');
@@ -961,12 +1004,12 @@ function openJoin(prefill){
   if(saved&&!$('#j-name').value)$('#j-name').value=saved.name||'';
   setTimeout(()=>($('#j-code').value?$('#j-name'):$('#j-code')).focus(),50);
 }
-$('#j-code').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,5)});
+$('#j-code').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,8)});
 $('#j-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('#j-go').click()});
 $('#j-go').onclick=async()=>{
   const err=$('#j-err');err.textContent='';
   const code=$('#j-code').value.trim();let name=$('#j-name').value.trim().replace(/\s+/g,' ').slice(0,8);
-  if(code.length!==5){err.textContent='반 코드 5자리를 입력해 주세요.';return}
+  if(!/^\d{8}$/.test(code)){err.textContent='반 코드 8자리를 입력해 주세요.';return}
   if(!name){err.textContent='이름을 입력해 주세요.';return}
   const btn=$('#j-go');btn.disabled=true;btn.textContent='들어가는 중…';
   try{
@@ -975,14 +1018,14 @@ $('#j-go').onclick=async()=>{
     if(!ms.exists())throw new Error('그런 반 코드가 없어요. 숫자를 다시 확인해 주세요.');
     const meta=ms.val();
     if(meta.status==='ended')throw new Error('이미 끝난 게임이에요. 선생님께 새 반 코드를 물어보세요.');
-    const saved=store.get('rcb_stu',null);
-    let pid=saved&&saved.code===code?saved.pid:null;
+    if(meta.expiresAt<=now())throw new Error('만료된 방이에요. 선생님께 새 반 코드를 물어보세요.');
+    const pid=uid(), ref=DB.ref('rooms/'+code+'/players/'+pid);
+    const existing=await ref.get();
+    if(existing.exists())await ref.update({name,online:true});
+    else await ref.set({name,score:0,round:meta.startRound||1,ok:0,ng:0,guard:0,joinedAt:SV().TIMESTAMP,online:true});
     const ps=await DB.ref('rooms/'+code+'/players').get();const all=ps.val()||{};
-    if(pid&&!(all[pid]&&all[pid].name))pid=null;
     const taken=new Set(Object.entries(all).filter(([id,p])=>id!==pid&&p&&p.name).map(([id,p])=>p.name));
-    if(taken.has(name)){let n=2,cand;do{cand=name.slice(0,8-String(n).length)+n;n++}while(taken.has(cand));name=cand}
-    if(pid){await DB.ref('rooms/'+code+'/players/'+pid).update({name,online:true})}
-    else{const ref=DB.ref('rooms/'+code+'/players').push();pid=ref.key;await ref.set({name,score:0,round:meta.startRound||1,ok:0,ng:0,guard:0,joinedAt:SV().TIMESTAMP,online:true})}
+    if(taken.has(name)){let n=2,cand;do{cand=name.slice(0,8-String(n).length)+n;n++}while(taken.has(cand));name=cand;await ref.update({name})}
     store.set('rcb_stu',{code,pid,name});
     enterStudent(code,pid);
   }catch(e){err.textContent=e.message||String(e)}
@@ -1169,7 +1212,7 @@ function queueMini(){if(G.miniQ)return;G.miniQ=true;setTimeout(()=>{G.miniQ=fals
 function renderMini(){
   if(G.solo)return;
   const list=ranked(G.players);const ul=$('#g-mini');ul.textContent='';
-  const top=list.slice(0,5);const meI=list.findIndex(p=>p.id===G.pid);
+  const top=list.slice(0,8);const meI=list.findIndex(p=>p.id===G.pid);
   const row=p=>h('li',{class:p.id===G.pid?'me':''},h('span',{class:'rk',text:p.rank<=3?['🥇','🥈','🥉'][p.rank-1]:p.rank}),h('span',{class:'nm',text:p.name}),h('span',{class:'sc',text:p.score||0}));
   top.forEach(p=>ul.append(row(p)));
   if(meI>=5){if(meI>5)ul.append(h('li',{class:'gap',text:'⋯'}));ul.append(row(list[meI]))}
@@ -1246,17 +1289,14 @@ async function doSteal(p){
   if(stealing)return;stealing=true;
   const cost=ITEMS.find(i=>i.id==='steal').cost;
   try{
-    const ok=await G.net.spend(cost);
-    if(!ok){toast('점수가 부족해요','bad');return}
     const r=await G.net.steal(p.id,G.me.name);
     closeShop();
     if(r.outcome==='stolen'){beep('ok');banner('🧲 '+p.name+' 친구에게서 '+r.amount+'점을 가져왔어요!','clear',2600)}
     else if(r.outcome==='blocked'){beep('guard');banner('🛡️ '+p.name+' 친구의 방어막에 막혔어요!','guard',2600)}
     else{
-      await G.net.refund(cost);
-      toast(r.outcome==='immune'?p.name+' 친구는 방금 뺏겨서 잠깐 보호 중이에요. 점수는 돌려받았어요.':r.outcome==='empty'?p.name+' 친구는 뺏을 점수가 없어요. 점수는 돌려받았어요.':'점수를 가져오지 못했어요. 점수는 돌려받았어요.','',3200);
+      toast(r.outcome==='immune'?'잠깐 보호 중인 친구예요.':r.outcome==='empty'?'친구의 점수가 없어요.':r.outcome==='funds'?'점수가 부족해요.':r.outcome==='offline'?'선생님 화면이 연결되어 있는지 확인해 주세요.':'지금은 점수를 가져올 수 없어요.','',4000);
     }
-  }finally{stealing=false}
+  }catch(e){networkError(e)}finally{stealing=false}
 }
 $('#g-shop').onclick=openShop;
 $('#shop-close').onclick=closeShop;
@@ -1273,13 +1313,15 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeShop()});
   if(saved&&getCfg()&&(!room||room===saved.code)){
     try{
       await withTimeout(initFirebase(getCfg()),10000);
+      if(saved.pid!==uid())throw new Error('로그인 정보가 바뀌었어요');
       const [ms,ps]=await Promise.all([DB.ref('rooms/'+saved.code+'/meta').get(),DB.ref('rooms/'+saved.code+'/players/'+saved.pid).get()]);
-      if(ms.exists()&&ms.val().status!=='ended'&&ps.exists()&&ps.val().name){enterStudent(saved.code,saved.pid);return}
+      if(ms.exists()&&ms.val().status!=='ended'&&ms.val().expiresAt>now()&&ps.exists()&&ps.val().name){enterStudent(saved.code,saved.pid);return}
     }catch(e){}
   }
-  if(room){openJoin(room.replace(/\D/g,'').slice(0,5));return}
+  if(room){openJoin(room.replace(/\D/g,'').slice(0,8));return}
   goHome();
 })();
 </script>
 </body>
 </html>
+
